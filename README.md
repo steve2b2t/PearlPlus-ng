@@ -71,6 +71,13 @@ pearlplus whitelist clear
 pearlplus droppearlafterload <on/off>
 ```
 
+```bash
+pearlplus set-restock-container <x> <y> <z>
+pearlplus set-restock-container clear
+```
+
+After a successful load, if the bot has no ender pearls left, it walks to the configured container (chest, barrel, shulker, etc.) and takes one stack.
+
 ### In-game Whisper Commands
 
 There are a few in-game commands players can whisper to the bot to manage their pearls.
