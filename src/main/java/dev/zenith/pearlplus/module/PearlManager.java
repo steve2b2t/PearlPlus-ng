@@ -358,29 +358,7 @@ public class PearlManager {
             final BlockPos startPos = current;
 
             BARITONE.rightClickBlock(targetX, targetY, targetZ)
-                    .addExecutedListener(f -> {
-                        var builder = Embed.builder()
-                                .title("Pearl Loaded!")
-                                .addField("Pearl ID", pearl.pearlId, false)
-                                .successColor();
-                        if (requesterName != null) {
-                            builder.addField("Requested By", requesterName, false);
-                        }
-                        notifier.discordAndIngameNotification(builder);
-
-                        if (PLUGIN_CONFIG.autoLoad.dropPearlAfterLoad) {
-                            handlePearlDropAfterLoad(requesterName);
-                        }
-
-                        if (PLUGIN_CONFIG.autoLoad.returnToStartPos) {
-                            BARITONE.pathTo(startPos.x(), startPos.y(), startPos.z())
-                                    .addExecutedListener(f2 -> notifier.discordAndIngameNotification(
-                                            Embed.builder()
-                                                    .description("Returned to start pos")
-                                                    .successColor()
-                                    ));
-                        }
-                    });
+                    .addExecutedListener(f -> onPearlLoaded(pearl, requesterName, startPos));
 
             notifier.discordAndIngameNotification(Embed.builder()
                     .title("Loading Pearl")
@@ -422,37 +400,47 @@ public class PearlManager {
                 .addExecutedListener(pathFuture -> {
                     // once pathing attempt is "done", try the click regardless of success/failure.
                     BARITONE.rightClickBlock(targetX, targetY, targetZ)
-                            .addExecutedListener(f -> {
-                                var builder = Embed.builder()
-                                        .title("Pearl Loaded!")
-                                        .addField("Pearl ID", pearl.pearlId, false)
-                                        .successColor();
-                                if (requesterName != null) {
-                                    builder.addField("Requested By", requesterName, false);
-                                }
-                                notifier.discordAndIngameNotification(builder);
-
-                                // drop a pearl when loaded.
-                                if (PLUGIN_CONFIG.autoLoad.dropPearlAfterLoad) {
-                                    handlePearlDropAfterLoad(requesterName);
-                                }
-
-                                // return to start position.
-                                if (PLUGIN_CONFIG.autoLoad.returnToStartPos) {
-                                    BARITONE.pathTo(startPos.x(), startPos.y(), startPos.z())
-                                            .addExecutedListener(f2 -> notifier.discordAndIngameNotification(
-                                                    Embed.builder()
-                                                            .description("Returned to start pos")
-                                                            .successColor()
-                                            ));
-                                }
-                            });
+                            .addExecutedListener(f -> onPearlLoaded(pearl, requesterName, startPos));
                 });
 
         notifier.discordAndIngameNotification(Embed.builder()
                 .title("Loading Pearl")
                 .addField("Pearl", pearl.pearlId, false)
                 .primaryColor());
+    }
+
+    private void onPearlLoaded(PearlPlusConfig.StoredPearl pearl, String requesterName, BlockPos startPos) {
+        var builder = Embed.builder()
+                .title("Pearl Loaded!")
+                .addField("Pearl ID", pearl.pearlId, false)
+                .successColor();
+        if (requesterName != null) {
+            builder.addField("Requested By", requesterName, false);
+        }
+        notifier.discordAndIngameNotification(builder);
+
+        int pearlCount = countEnderPearlsInInventory();
+        if (PLUGIN_CONFIG.autoLoad.dropPearlAfterLoad) {
+            handlePearlDropAfterLoad(requesterName);
+        }
+        boolean droppedOne = PLUGIN_CONFIG.autoLoad.dropPearlAfterLoad
+                && requesterName != null && !requesterName.isBlank()
+                && pearlCount > 0;
+        int remaining = droppedOne ? pearlCount - 1 : pearlCount;
+
+        if (PLUGIN_CONFIG.restock.enabled && remaining <= 0) {
+            MODULE.get(PearlRestockModule.class).requestAfterLoad(startPos);
+            return;
+        }
+
+        if (PLUGIN_CONFIG.autoLoad.returnToStartPos) {
+            BARITONE.pathTo(startPos.x(), startPos.y(), startPos.z())
+                    .addExecutedListener(f2 -> notifier.discordAndIngameNotification(
+                            Embed.builder()
+                                    .description("Returned to start pos")
+                                    .successColor()
+                    ));
+        }
     }
 
     public String pearlsList(UUID ownerUuid) {
@@ -566,6 +554,30 @@ public class PearlManager {
         }
         
         return isEnderPearl(itemStack);
+    }
+
+    public boolean hasAnyEnderPearls() {
+        return countEnderPearlsInInventory() > 0;
+    }
+
+    public int countEnderPearlsInInventory() {
+        if (CACHE == null || CACHE.getPlayerCache() == null) {
+            return 0;
+        }
+        var playerInventory = CACHE.getPlayerCache().getPlayerInventory();
+        if (playerInventory == null) {
+            return 0;
+        }
+        int count = 0;
+        int end = Math.min(playerInventory.size(), 46);
+        for (int i = 9; i < end; i++) {
+            var itemStack = playerInventory.get(i);
+            if (itemStack instanceof org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack stack
+                    && stack.getId() == ItemRegistry.ENDER_PEARL.id()) {
+                count += stack.getAmount();
+            }
+        }
+        return count;
     }
 
     // Find pearls in inventory and move to hotbar slot 0

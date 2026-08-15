@@ -30,6 +30,7 @@ public class PearlPlusPlugin implements ZenithProxyPlugin {
         API.registerCommand(new PearlPlusCommand());
         API.registerModule(new AutoLoadModule());
         API.registerModule(new AutoDetectModule());
+        API.registerModule(new PearlRestockModule());
 
         LOG.info("PearlPlus Plugin loaded!");
     }
