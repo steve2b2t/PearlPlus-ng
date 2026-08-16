@@ -12,9 +12,12 @@ import com.zenith.mc.item.ItemRegistry;
 import com.zenith.module.api.Module;
 import com.zenith.util.ChatUtil;
 import dev.zenith.pearlplus.PearlPlusConfig;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.type.EntityType;
 import org.geysermc.mcprotocollib.protocol.data.game.inventory.MoveToHotbarAction;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,7 +29,11 @@ import static dev.zenith.pearlplus.PearlPlusPlugin.LOG;
 import static dev.zenith.pearlplus.PearlPlusPlugin.PLUGIN_CONFIG;
 
 public class PearlManager {
+    private static final long CLAIM_RELEASE_TIMEOUT_MS = 5_000L;
+
     private static PendingLookClick pendingLookClick;
+    private static final List<PendingClaimRelease> pendingClaimReleases =
+            Collections.synchronizedList(new ArrayList<>());
 
     private final Module notifier;
 
@@ -38,8 +45,18 @@ public class PearlManager {
             int lookLockTicksRemaining,
             PearlPlusConfig.StoredPearl pearl,
             String requesterName,
+            UUID ownerUuid,
             BlockPos startPos,
             Module notifier
+    ) {
+    }
+
+    private record PendingClaimRelease(
+            UUID ownerUuid,
+            String pearlId,
+            int x,
+            int z,
+            long deadlineMs
     ) {
     }
 
@@ -83,10 +100,17 @@ public class PearlManager {
     }
 
     public void removePearl(UUID ownerUuid, String pearlId) {
+        releaseStoredPearl(ownerUuid, pearlId);
+    }
+
+    private static void releaseStoredPearl(UUID ownerUuid, String pearlId) {
+        if (ownerUuid == null || pearlId == null) {
+            return;
+        }
         PearlPlusConfig.PlayerPearls entry = PLUGIN_CONFIG.players.get(ownerUuid);
         if (entry == null) return;
         entry.pearls.remove(pearlId);
-        if (pearlId != null && pearlId.equals(entry.defaultPearlId)) {
+        if (pearlId.equals(entry.defaultPearlId)) {
             entry.defaultPearlId = entry.pearls.keySet().stream().findFirst().orElse(null);
         }
         if (entry.pearls.isEmpty()) {
@@ -261,7 +285,7 @@ public class PearlManager {
         return bestPos;
     }
 
-    public void loadPearl(PearlPlusConfig.StoredPearl pearl, String requesterName) {
+    public void loadPearl(PearlPlusConfig.StoredPearl pearl, String requesterName, UUID ownerUuid) {
         if (pearl == null) {
             return;
         }
@@ -310,7 +334,7 @@ public class PearlManager {
         debugClickTarget(pearl, trapdoorPos, targetX, targetY, targetZ);
         GrimInteract.pathIntoReach(targetX, targetY, targetZ)
                 .addExecutedListener(f -> startLookThenClick(
-                        targetX, targetY, targetZ, pearl, requesterName, current, notifier));
+                        targetX, targetY, targetZ, pearl, requesterName, ownerUuid, current, notifier));
 
         notifier.discordAndIngameNotification(Embed.builder()
                 .title("Loading Pearl")
@@ -324,6 +348,7 @@ public class PearlManager {
             int z,
             PearlPlusConfig.StoredPearl pearl,
             String requesterName,
+            UUID ownerUuid,
             BlockPos startPos,
             Module notifier
     ) {
@@ -331,13 +356,17 @@ public class PearlManager {
                 x, y, z,
                 GrimInteract.LOOK_TICKS,
                 GrimInteract.LOOK_LOCK_TIMEOUT_TICKS,
-                pearl, requesterName, startPos, notifier);
+                pearl, requesterName, ownerUuid, startPos, notifier);
         GrimInteract.debug("In range of [" + x + ", " + y + ", " + z + "], looking for "
                 + GrimInteract.LOOK_TICKS + " ticks before click");
     }
 
     public static void cancelPendingLookClick() {
         pendingLookClick = null;
+    }
+
+    public static void cancelPendingClaimReleases() {
+        pendingClaimReleases.clear();
     }
 
     public static void tickPendingLookClick() {
@@ -353,13 +382,14 @@ public class PearlManager {
                     pending.x(), pending.y(), pending.z(),
                     pending.lookTicksRemaining() - 1,
                     pending.lookLockTicksRemaining(),
-                    pending.pearl(), pending.requesterName(), pending.startPos(), pending.notifier());
+                    pending.pearl(), pending.requesterName(), pending.ownerUuid(),
+                    pending.startPos(), pending.notifier());
             return;
         }
         if (GrimInteract.useItemOnIfLookingAt(pending.x(), pending.y(), pending.z())) {
             pendingLookClick = null;
             new PearlManager(pending.notifier())
-                    .onPearlLoaded(pending.pearl(), pending.requesterName(), pending.startPos());
+                    .onPearlLoaded(pending.pearl(), pending.requesterName(), pending.ownerUuid(), pending.startPos());
             return;
         }
         if (pending.lookLockTicksRemaining() <= 0) {
@@ -374,10 +404,43 @@ public class PearlManager {
                 pending.x(), pending.y(), pending.z(),
                 0,
                 pending.lookLockTicksRemaining() - 1,
-                pending.pearl(), pending.requesterName(), pending.startPos(), pending.notifier());
+                pending.pearl(), pending.requesterName(), pending.ownerUuid(),
+                pending.startPos(), pending.notifier());
     }
 
-    private void onPearlLoaded(PearlPlusConfig.StoredPearl pearl, String requesterName, BlockPos startPos) {
+    public static void tickPendingClaimReleases() {
+        if (pendingClaimReleases.isEmpty()) {
+            return;
+        }
+        Proxy proxy = Proxy.getInstance();
+        if (proxy == null || !proxy.isConnected() || proxy.isInQueue()) {
+            return;
+        }
+        if (CACHE == null || CACHE.getEntityCache() == null) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        synchronized (pendingClaimReleases) {
+            Iterator<PendingClaimRelease> iterator = pendingClaimReleases.iterator();
+            while (iterator.hasNext()) {
+                PendingClaimRelease pending = iterator.next();
+                if (hasPearlEntityAt(pending.x(), pending.z())) {
+                    if (now >= pending.deadlineMs()) {
+                        iterator.remove();
+                        LOG.info("[PearlPlus] Timed out waiting to release claim " + pending.pearlId()
+                                + "; pearl still present at [" + pending.x() + ", " + pending.z() + "]");
+                    }
+                    continue;
+                }
+                iterator.remove();
+                releaseStoredPearl(pending.ownerUuid(), pending.pearlId());
+                LOG.info("[PearlPlus] Released pearl claim " + pending.pearlId() + " after load");
+            }
+        }
+    }
+
+    private void onPearlLoaded(PearlPlusConfig.StoredPearl pearl, String requesterName, UUID ownerUuid, BlockPos startPos) {
         var builder = Embed.builder()
                 .title("Pearl Loaded!")
                 .addField("Pearl ID", pearl.pearlId, false)
@@ -386,6 +449,8 @@ public class PearlManager {
             builder.addField("Requested By", requesterName, false);
         }
         notifier.discordAndIngameNotification(builder);
+
+        releaseClaimAfterLoad(ownerUuid, pearl);
 
         int pearlCount = countEnderPearlsInInventory();
         if (PLUGIN_CONFIG.autoLoad.dropPearlAfterLoad) {
@@ -409,6 +474,59 @@ public class PearlManager {
                                     .successColor()
                     ));
         }
+    }
+
+    private void releaseClaimAfterLoad(UUID ownerUuid, PearlPlusConfig.StoredPearl pearl) {
+        if (pearl == null || pearl.pearlId == null || pearl.pearlId.isBlank()) {
+            return;
+        }
+        UUID owner = ownerUuid != null ? ownerUuid : findOwnerUuid(pearl);
+        if (owner == null) {
+            info("Cannot release claim for " + pearl.pearlId + " after load: owner unknown");
+            return;
+        }
+        if (CACHE != null && CACHE.getEntityCache() != null && !hasPearlEntityAt(pearl.x, pearl.z)) {
+            removePearl(owner, pearl.pearlId);
+            info("Released pearl claim " + pearl.pearlId + " after load");
+            return;
+        }
+        synchronized (pendingClaimReleases) {
+            pendingClaimReleases.removeIf(pending ->
+                    owner.equals(pending.ownerUuid()) && pearl.pearlId.equals(pending.pearlId()));
+            pendingClaimReleases.add(new PendingClaimRelease(
+                    owner,
+                    pearl.pearlId,
+                    pearl.x,
+                    pearl.z,
+                    System.currentTimeMillis() + CLAIM_RELEASE_TIMEOUT_MS));
+        }
+        info("Pearl still present at [" + pearl.x + ", " + pearl.z + "]; will release claim "
+                + pearl.pearlId + " when it despawns");
+    }
+
+    private UUID findOwnerUuid(PearlPlusConfig.StoredPearl pearl) {
+        if (pearl == null || PLUGIN_CONFIG.players == null) {
+            return null;
+        }
+        for (var entry : PLUGIN_CONFIG.players.entrySet()) {
+            if (entry.getValue() == null || entry.getValue().pearls == null) {
+                continue;
+            }
+            if (entry.getValue().pearls.containsValue(pearl)) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    private static boolean hasPearlEntityAt(int blockX, int blockZ) {
+        if (CACHE == null || CACHE.getEntityCache() == null) {
+            return false;
+        }
+        return CACHE.getEntityCache().getEntities().values().stream()
+                .anyMatch(entity -> entity.getEntityType() == EntityType.ENDER_PEARL
+                        && Math.floor(entity.getX()) == blockX
+                        && Math.floor(entity.getZ()) == blockZ);
     }
 
     public String pearlsList(UUID ownerUuid) {

@@ -176,7 +176,7 @@ public class PearlPlusCommand extends Command {
                                 return 0;
                             }
 
-                            manager.loadPearl(playerEntry.pearls.get(resolvedPearlId), null);
+                            manager.loadPearl(playerEntry.pearls.get(resolvedPearlId), null, uuid);
                             c.getSource().getEmbed().title("Loading pearl " + resolvedPearlId + " for " + name);
                             return 0;
                         }))));
