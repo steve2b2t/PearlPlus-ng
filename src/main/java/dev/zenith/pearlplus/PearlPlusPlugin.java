@@ -37,8 +37,14 @@ public class PearlPlusPlugin implements ZenithProxyPlugin {
         API.registerModule(new PearlRestockModule());
         EVENT_BUS.subscribe(
                 this,
-                of(ClientBotTick.class, event -> PearlManager.tickPendingLookClick()),
-                of(ClientBotTick.Stopped.class, event -> PearlManager.cancelPendingLookClick())
+                of(ClientBotTick.class, event -> {
+                    PearlManager.tickPendingLookClick();
+                    PearlManager.tickPendingClaimReleases();
+                }),
+                of(ClientBotTick.Stopped.class, event -> {
+                    PearlManager.cancelPendingLookClick();
+                    PearlManager.cancelPendingClaimReleases();
+                })
         );
 
         LOG.info("PearlPlus Plugin loaded!");
