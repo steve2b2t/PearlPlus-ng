@@ -50,7 +50,8 @@ public class PearlPlusCommand extends Command {
                 "whitelist <on/off / add / clear / list / remove>",
                 "droppearlafterload <on/off>",
                 "set-restock-container <x> <y> <z>",
-                "set-restock-container clear"
+                "set-restock-container clear",
+                "debug <true/false>"
             )
             .aliases("pp")
             .build();
@@ -378,6 +379,15 @@ public class PearlPlusCommand extends Command {
                                     return 0;
                                 })))));
 
+        builder.then(literal("debug")
+                .then(argument("toggle", toggle()).executes(c -> {
+                    boolean enabled = getToggle(c, "toggle");
+                    PLUGIN_CONFIG.debug = enabled;
+                    c.getSource().getEmbed()
+                            .title("PearlPlus debug " + toggleStrCaps(enabled));
+                    return 0;
+                })));
+
         return builder;
     }
 
@@ -397,6 +407,7 @@ public class PearlPlusCommand extends Command {
                 .addField("Whitelist", toggleStr(PLUGIN_CONFIG.autoLoad.whitelistEnabled))
                 .addField("Drop Pearl After Load", toggleStr(PLUGIN_CONFIG.autoLoad.dropPearlAfterLoad))
                 .addField("Restock Container", restockContainerField())
+                .addField("Debug", toggleStr(PLUGIN_CONFIG.debug))
                 .primaryColor();
     }
 

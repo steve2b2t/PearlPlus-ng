@@ -10,6 +10,7 @@ public class PearlPlusConfig {
     public final RestockConfig restock = new RestockConfig();
 
     public String defaultPearlId = "Base";
+    public boolean debug = false;
 
     public final Map<UUID, PlayerPearls> players = new LinkedHashMap<>();
     public final Map<UUID, WhitelistedPlayer> whitelist = new LinkedHashMap<>();

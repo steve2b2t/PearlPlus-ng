@@ -32,6 +32,7 @@ public class PearlRestockModule extends Module {
         IDLE,
         PENDING,
         PATHING,
+        LOOKING,
         WAITING_OPEN,
         WITHDRAWING
     }
@@ -41,6 +42,8 @@ public class PearlRestockModule extends Module {
     private RequestFuture pathFuture;
     private RequestFuture withdrawFuture;
     private long waitOpenUntilMs;
+    private int lookTicksRemaining;
+    private int lookLockTicksRemaining;
 
     @Override
     public boolean enabledSetting() {
@@ -101,6 +104,7 @@ public class PearlRestockModule extends Module {
         switch (state) {
             case PENDING -> startPathing();
             case PATHING -> tickPathing();
+            case LOOKING -> tickLooking();
             case WAITING_OPEN -> tickWaitingOpen();
             case WITHDRAWING -> tickWithdrawing();
             default -> {
@@ -113,7 +117,7 @@ public class PearlRestockModule extends Module {
             + PLUGIN_CONFIG.restock.x + ", "
             + PLUGIN_CONFIG.restock.y + ", "
             + PLUGIN_CONFIG.restock.z + "]");
-        pathFuture = BARITONE.rightClickBlock(
+        pathFuture = GrimInteract.pathIntoReach(
             PLUGIN_CONFIG.restock.x,
             PLUGIN_CONFIG.restock.y,
             PLUGIN_CONFIG.restock.z
@@ -126,11 +130,40 @@ public class PearlRestockModule extends Module {
             return;
         }
         if (!pathFuture.isAccepted()) {
-            finish("Restock Failed", "Could not open restock container", false);
+            finish("Restock Failed", "Could not reach restock container", false);
             return;
         }
-        waitOpenUntilMs = System.currentTimeMillis() + CONTAINER_OPEN_TIMEOUT_MS;
-        state = State.WAITING_OPEN;
+        lookTicksRemaining = GrimInteract.LOOK_TICKS;
+        lookLockTicksRemaining = GrimInteract.LOOK_LOCK_TIMEOUT_TICKS;
+        GrimInteract.debug("In range of restock container ["
+                + PLUGIN_CONFIG.restock.x + ", "
+                + PLUGIN_CONFIG.restock.y + ", "
+                + PLUGIN_CONFIG.restock.z + "], looking for "
+                + GrimInteract.LOOK_TICKS + " ticks before open");
+        state = State.LOOKING;
+    }
+
+    private void tickLooking() {
+        int x = PLUGIN_CONFIG.restock.x;
+        int y = PLUGIN_CONFIG.restock.y;
+        int z = PLUGIN_CONFIG.restock.z;
+        GrimInteract.lookAt(x, y, z);
+        if (lookTicksRemaining > 0) {
+            GrimInteract.debug("Looking at restock container [" + x + ", " + y + ", " + z
+                    + "], " + lookTicksRemaining + " ticks left");
+            lookTicksRemaining--;
+            return;
+        }
+        if (GrimInteract.useItemOnIfLookingAt(x, y, z)) {
+            waitOpenUntilMs = System.currentTimeMillis() + CONTAINER_OPEN_TIMEOUT_MS;
+            state = State.WAITING_OPEN;
+            return;
+        }
+        if (lookLockTicksRemaining <= 0) {
+            finish("Restock Failed", "Not looking at restock container, click aborted", false);
+            return;
+        }
+        lookLockTicksRemaining--;
     }
 
     private void tickWaitingOpen() {
@@ -213,6 +246,8 @@ public class PearlRestockModule extends Module {
         pathFuture = null;
         withdrawFuture = null;
         waitOpenUntilMs = 0L;
+        lookTicksRemaining = 0;
+        lookLockTicksRemaining = 0;
     }
 
     private static boolean canOperate() {
