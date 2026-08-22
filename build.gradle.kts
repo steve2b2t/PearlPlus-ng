@@ -1,6 +1,6 @@
 plugins {
     id("zenithproxy.plugin.dev") version "1.0.1-SNAPSHOT"
-    id("org.graalvm.buildtools.native") version "1.1.8"
+    id("org.graalvm.buildtools.native") version "1.1.9"
 }
 
 group = properties["maven_group"] as String
