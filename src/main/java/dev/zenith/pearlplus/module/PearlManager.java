@@ -386,6 +386,14 @@ public class PearlManager {
                     pending.startPos(), pending.notifier());
             return;
         }
+        if (!GrimInteract.hasInteractableTarget(pending.x(), pending.y(), pending.z())) {
+            pendingLookClick = null;
+            pending.notifier().discordAndIngameNotification(Embed.builder()
+                    .title("Pearl Load Failed")
+                    .description("No interactable block at the trapdoor position, click aborted")
+                    .errorColor());
+            return;
+        }
         if (GrimInteract.useItemOnIfLookingAt(pending.x(), pending.y(), pending.z())) {
             pendingLookClick = null;
             new PearlManager(pending.notifier())

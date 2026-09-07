@@ -154,6 +154,10 @@ public class PearlRestockModule extends Module {
             lookTicksRemaining--;
             return;
         }
+        if (!GrimInteract.hasInteractableTarget(x, y, z)) {
+            finish("Restock Failed", "No interactable block at restock container, click aborted", false);
+            return;
+        }
         if (GrimInteract.useItemOnIfLookingAt(x, y, z)) {
             waitOpenUntilMs = System.currentTimeMillis() + CONTAINER_OPEN_TIMEOUT_MS;
             state = State.WAITING_OPEN;

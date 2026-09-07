@@ -7,6 +7,7 @@ import com.zenith.feature.pathfinder.goals.GoalNear;
 import com.zenith.feature.player.InputRequest;
 import com.zenith.feature.player.InputRequestFuture;
 import com.zenith.feature.player.RotationHelper;
+import com.zenith.feature.player.World;
 import com.zenith.feature.player.raycast.RaycastHelper;
 import org.cloudburstmc.math.vector.Vector2f;
 import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
@@ -14,6 +15,7 @@ import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.Serv
 import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.player.ServerboundUseItemOnPacket;
 
 import static com.zenith.Globals.BARITONE;
+import static com.zenith.Globals.BLOCK_DATA;
 import static com.zenith.Globals.BOT;
 import static com.zenith.Globals.CACHE;
 import static com.zenith.Globals.INPUTS;
@@ -32,13 +34,23 @@ final class GrimInteract {
     }
 
     static InputRequestFuture lookAt(int x, int y, int z) {
-        Vector2f rot = RotationHelper.shortestRotationTo(x, y, z);
+        var center = World.blockInteractionCenter(x, y, z);
+        Vector2f rot = RotationHelper.rotationTo(center.x(), center.y(), center.z());
         return INPUTS.submit(InputRequest.builder()
                 .owner(GrimInteract.class)
                 .yaw(rot.getX())
                 .pitch(rot.getY())
                 .priority(Baritone.getPriority() + 1)
                 .build());
+    }
+
+    static boolean hasInteractableTarget(int x, int y, int z) {
+        var block = World.getBlock(x, y, z);
+        if (block.isAir()) {
+            return false;
+        }
+        var boxes = BLOCK_DATA.getInteractionBoxesFromBlockStateId(World.getBlockStateId(x, y, z));
+        return boxes != null && !boxes.isEmpty();
     }
 
     static boolean isLookingAt(int x, int y, int z) {
