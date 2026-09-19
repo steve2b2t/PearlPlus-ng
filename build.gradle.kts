@@ -1,6 +1,6 @@
 plugins {
-    id("zenithproxy.plugin.dev") version "1.0.1-SNAPSHOT"
-    id("org.graalvm.buildtools.native") version "1.1.8"
+    id("zenithproxy.plugin.dev") version "1.2.0"
+    id("org.graalvm.buildtools.native") version "1.1.13"
 }
 
 group = properties["maven_group"] as String
@@ -31,7 +31,7 @@ repositories {
 dependencies {
     zenithProxy("com.zenith:ZenithProxy:$mc-SNAPSHOT")
 
-    compileOnly("org.graalvm.sdk:nativeimage:25.2.4")
+    compileOnly("org.graalvm.sdk:nativeimage:25.3.4.1")
 
     /** to include dependencies into your plugin jar **/
 //    shade("com.github.ben-manes.caffeine:caffeine:3.2.0")
